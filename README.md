@@ -3,7 +3,6 @@
 > A universal product bundling engine for Shopify merchants to increase Average Order Value (AOV), regardless of product category.
 
 [![Status](https://img.shields.io/badge/Status-Production--Ready-success.svg)]()
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)]()
 
 ## 🚨 Problem & Solution
 
@@ -95,10 +94,6 @@ Because there is no build step, deployment takes seconds:
 - **GitHub Pages:** Commit the file as `index.html` to a repository and enable GitHub Pages in Settings.
 - **Any Web Host:** Upload the HTML file via FTP or file manager.
 
-## 🎯 Product Strategy (APM Perspective)
-
-**Why this approach?** Shopify merchants are overwhelmed by complex apps requiring deep integration. By offering a lightweight, zero-install, drag-and-drop CSV solution based on universal price psychology, we reduce the time-to-value from hours to seconds.
-
 **Key Product Decisions:**
 - *Category Agnostic:* Avoided ML/AI keyword matching in favor of price-tier psychology to ensure it works for *every* merchant right out of the box.
 - *Portable Architecture:* Chose a single HTML file format to empower non-technical merchants and internal operational teams to use the tool without engineering support.
@@ -112,14 +107,3 @@ Because there is no build step, deployment takes seconds:
   Projections use a baseline 35% conversion lift benchmark for well-merchandised bundles. Actual results vary, but the ranking metric is mathematically sound.
 - **Can I modify the 15% discount?**
   Advanced users can modify the `0.85` multiplier directly in the HTML file's calculation function.
-- **Does this work with my specific Shopify plan?**
-  Yes, it is entirely standalone. You simply use your Shopify export data.
-
-## 📜 License
-
-MIT License. Open and free to use, modify, and distribute.
-
-## 🤝 Author
-
-Built for the Shopify APM Program.
-[GitHub Profile](#)
