@@ -1,0 +1,480 @@
+import { useState, useRef, useEffect } from 'react';
+
+function extractKeywords(productName: string) {
+  const keywordsMatch: Record<string, string[]> = {
+    charge: ['Power'], power: ['Power'],
+    cable: ['Connectivity'],
+    case: ['Protection'], protect: ['Protection'], shield: ['Protection'],
+    screen: ['Display'], glass: ['Display'],
+    audio: ['Audio'], speaker: ['Audio'], earbud: ['Audio'], headphone: ['Audio'],
+    mount: ['Auto Accessory'], car: ['Auto Accessory'],
+    fitness: ['Wellness'],
+    clean: ['Care'], wash: ['Care'], wax: ['Detailing'], towel: ['Care'],
+    serum: ['Skin Care'], moisturizer: ['Skin Care']
+  };
+  const name = productName.toLowerCase();
+  const found: string[] = [];
+  Object.entries(keywordsMatch).forEach(([key, values]) => {
+    if (name.includes(key)) found.push(...values);
+  });
+  return found;
+}
+
+const generateSmartName = (items: any[], fallbackPrefix: string) => {
+  const keywords = items.flatMap(item => extractKeywords(item.name));
+  if (keywords.length === 0) return `${fallbackPrefix} Bundle`;
+  const counts: Record<string, number> = {};
+  keywords.forEach(k => counts[k] = (counts[k] || 0) + 1);
+  const uniqueRanked = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+  const topKeywords = uniqueRanked.slice(0, 2);
+  const bundleTypes = ['Kit', 'Set', 'Bundle', 'Package', 'System', 'Solution'];
+  const type = bundleTypes[Math.floor(Math.random() * bundleTypes.length)];
+  return `${topKeywords.join(' & ')} ${type}`;
+}
+
+const calculateVariant = (sortedItems: any[], discount: number, liftMultiplier: number) => {
+  const primaryItem = sortedItems[0];
+  const sumPrice = sortedItems.reduce((sum: number, item: any) => sum + item.price, 0);
+  const bundlePrice = sumPrice * (1 - discount);
+  const totalCost = sortedItems.reduce((sum: number, item: any) => sum + (item.price * (1 - item.margin)), 0);
+  const bundleMargin = ((bundlePrice - totalCost) / bundlePrice) * 100;
+  const currentRevenue = primaryItem.price * primaryItem.monthlyUnits;
+  const projectedRevenue = (primaryItem.monthlyUnits * liftMultiplier) * bundlePrice;
+  const revenueLift = ((projectedRevenue - currentRevenue) / currentRevenue) * 100;
+  return { discount, bundlePrice, bundleMargin, projectedRevenue, revenueLift, savings: sumPrice - bundlePrice };
+};
+
+const SAMPLE_PRODUCTS = [
+  { name: 'Wireless Earbuds', price: 79.99, margin: 0.45, category: 'Audio', monthlyUnits: 120 },
+  { name: 'Phone Case', price: 24.99, margin: 0.60, category: 'Accessories', monthlyUnits: 450 },
+  { name: 'Screen Protector', price: 14.99, margin: 0.65, category: 'Accessories', monthlyUnits: 380 },
+  { name: 'Charging Cable', price: 19.99, margin: 0.55, category: 'Cables', monthlyUnits: 520 },
+  { name: 'Portable Charger', price: 34.99, margin: 0.40, category: 'Power', monthlyUnits: 200 },
+  { name: 'Bluetooth Speaker', price: 89.99, margin: 0.42, category: 'Audio', monthlyUnits: 85 },
+  { name: 'Car Mount', price: 29.99, margin: 0.50, category: 'Accessories', monthlyUnits: 310 },
+  { name: 'Tempered Glass Protector', price: 18.99, margin: 0.62, category: 'Accessories', monthlyUnits: 290 },
+  { name: 'Wall Charger', price: 24.99, margin: 0.58, category: 'Power', monthlyUnits: 400 },
+  { name: 'Headphone Stand', price: 15.99, margin: 0.68, category: 'Accessories', monthlyUnits: 150 }
+];
+
+export default function App() {
+  const [products, setProducts] = useState<any[]>([]);
+  const [bundles, setBundles] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const savedProducts = localStorage.getItem('smartBundleProducts');
+    const savedBundles = localStorage.getItem('smartBundleBundles');
+    if (savedProducts && savedBundles) {
+      try {
+        setProducts(JSON.parse(savedProducts));
+        setBundles(JSON.parse(savedBundles));
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  }, []);
+
+  const saveState = (newProducts: any[], newBundles: any[]) => {
+    localStorage.setItem('smartBundleProducts', JSON.stringify(newProducts));
+    localStorage.setItem('smartBundleBundles', JSON.stringify(newBundles));
+  };
+
+  // --- Algorithm Core ---
+  const analyzeAndBundle = (data: any[]) => {
+    if (!data || data.length < 3) {
+      setError('Need at least 3 products to generate bundles.');
+      return;
+    }
+
+    const maxPrice = Math.max(...data.map(p => p.price));
+    
+    // Tier segmentation
+    const budget: any[] = [];
+    const midRange: any[] = [];
+    const premium: any[] = [];
+    
+    data.forEach(p => {
+        const ratio = p.price / maxPrice;
+        if (ratio <= 0.33) budget.push(p);
+        else if (ratio <= 0.66) midRange.push(p);
+        else premium.push(p);
+    });
+
+    // Sort sub-arrays by monthly units descending (bestsellers first)
+    budget.sort((a, b) => b.monthlyUnits - a.monthlyUnits);
+    midRange.sort((a, b) => b.monthlyUnits - a.monthlyUnits);
+    premium.sort((a, b) => b.monthlyUnits - a.monthlyUnits);
+
+    const generatedBundles: any[] = [];
+    const usedComboKeys = new Set();
+    
+    const generateBundleData = (items: any[], namePrefix: string) => {
+        const sortedItems = [...items].sort((a,b) => b.price - a.price);
+        const comboKey = sortedItems.map((i: any) => i.name).sort().join('|');
+        
+        if (usedComboKeys.has(comboKey)) return null;
+        usedComboKeys.add(comboKey);
+
+        const sumPrice = sortedItems.reduce((sum, item) => sum + item.price, 0);
+        const smartName = generateSmartName(sortedItems, namePrefix);
+        
+        const variants = [
+          { ...calculateVariant(sortedItems, 0.10, 1.32), label: 'Conservative' },
+          { ...calculateVariant(sortedItems, 0.15, 1.35), label: 'Recommended' },
+          { ...calculateVariant(sortedItems, 0.20, 1.40), label: 'Growth' },
+        ];
+
+        return {
+            id: Math.random().toString(36).substr(2, 9),
+            name: smartName,
+            description: `Combine ${sortedItems[0].name}, ${sortedItems[1].name}, and ${sortedItems[2]?.name || 'more'} and save $${variants[1].savings.toFixed(2)}. Perfect everyday value.`,
+            items: sortedItems,
+            sumPrice,
+            variants,
+            revenueLift: variants[1].revenueLift,
+            bundlePrice: variants[1].bundlePrice,
+            savings: variants[1].savings,
+            bundleMargin: variants[1].bundleMargin,
+            projectedRevenue: variants[1].projectedRevenue
+        };
+    };
+
+    // 1. Premium + Mid + Budget
+    premium.forEach(p => {
+      if (midRange.length > 0 && budget.length > 0) {
+          const b = generateBundleData([p, midRange[0], budget[0]], "Premium Essentials");
+          if (b) generatedBundles.push(b);
+      }
+      if (budget.length > 1) {
+          const b = generateBundleData([p, budget[0], budget[1]], "Ultimate Value");
+          if (b) generatedBundles.push(b);
+      }
+    });
+
+    // 2. Mid + Budget + Budget
+    midRange.forEach(m => {
+        if (budget.length > 1) {
+            const b = generateBundleData([m, budget[0], budget[1]], "Complete Starter Kit");
+            if (b) generatedBundles.push(b);
+        }
+    });
+    
+    // 3. Fallback mixing top sellers (If ranges don't perfectly align)
+    const topSellers = [...data].sort((a,b) => b.monthlyUnits - a.monthlyUnits);
+    if (topSellers.length >= 3) {
+          const b1 = generateBundleData([topSellers[0], topSellers[1], topSellers[2]], "Bestseller Package");
+          if (b1) generatedBundles.push(b1);
+          if (topSellers.length >= 6) {
+              const b2 = generateBundleData([topSellers[3], topSellers[4], topSellers[5]], "Smart Savings");
+              if (b2) generatedBundles.push(b2);
+          }
+    }
+
+    // Sort by revenue lift and take top 8
+    generatedBundles.sort((a, b) => b.revenueLift - a.revenueLift);
+    const finalBundles = generatedBundles.slice(0, 8);
+    setBundles(finalBundles);
+    saveState(data, finalBundles);
+  };
+
+  const handleLoadSample = () => {
+    setError('');
+    setLoading(true);
+    setTimeout(() => {
+      setProducts(SAMPLE_PRODUCTS);
+      analyzeAndBundle(SAMPLE_PRODUCTS);
+      setLoading(false);
+    }, 600);
+  };
+
+  const handleClear = () => {
+    setProducts([]);
+    setBundles([]);
+    setError('');
+    localStorage.removeItem('smartBundleProducts');
+    localStorage.removeItem('smartBundleBundles');
+  };
+
+  const handleExportBundles = () => {
+    if (!bundles || bundles.length === 0) return;
+    const headers = ["Bundle Name", "Item 1", "Item 2", "Item 3", "Bundle Price", "Customer Savings", "Revenue Lift %"];
+    const rows = bundles.map(b => {
+      return [
+        b.name,
+        b.items[0]?.name || '',
+        b.items[1]?.name || '',
+        b.items[2]?.name || '',
+        `$${b.bundlePrice.toFixed(2)}`,
+        `$${b.savings.toFixed(2)}`,
+        `+${b.revenueLift.toFixed(0)}%`
+      ];
+    });
+    const csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n" + rows.map(e => e.map(cell => `"${cell}"`).join(",")).join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    link.setAttribute("download", `bundle-recommendations-${timestamp}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleCopyDescriptions = (e: React.MouseEvent) => {
+    if (!bundles || bundles.length === 0) return;
+    const text = bundles.map(b => `${b.name}:\n${b.description}`).join('\n\n');
+    navigator.clipboard.writeText(text);
+    const btn = e.currentTarget as HTMLButtonElement;
+    const originalText = btn.innerText;
+    btn.innerText = '✅ Copied!';
+    setTimeout(() => { btn.innerText = originalText; }, 2000);
+  };
+
+  const handleDownloadTemplate = () => {
+    const headers = ["Name", "Price", "Margin", "Category", "Monthly Units Sold"];
+    const rows = [
+        ["Wireless Earbuds", "79.99", "0.45", "Audio", "120"],
+        ["Phone Case", "24.99", "0.60", "Accessories", "450"]
+    ];
+    
+    const csvContent = "data:text/csv;charset=utf-8," 
+        + headers.join(",") + "\n" 
+        + rows.map(e => e.join(",")).join("\n");
+        
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", "bundle_template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      parseCSV(text);
+      // reset input
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+    reader.readAsText(file);
+  };
+
+  const parseCSV = (text: string) => {
+    try {
+        setError('');
+        const lines = text.split('\n').filter(line => line.trim() !== '');
+        if (lines.length < 2) throw new Error("File seems empty or missing data rows.");
+        
+        const parsedProducts = [];
+        
+        for (let i = 1; i < lines.length; i++) {
+            const parts = lines[i].split(',').map(s => s.trim());
+            if (parts.length < 5) continue; // skip malformed rows
+            
+            const price = parseFloat(parts[1]);
+            const margin = parseFloat(parts[2]);
+            const units = parseInt(parts[4], 10);
+            
+            if (isNaN(price) || isNaN(margin) || isNaN(units)) {
+                throw new Error(`Invalid numbers found on row ${i+1}. Please check Price, Margin, and Units.`);
+            }
+            
+            parsedProducts.push({
+                name: parts[0],
+                price: price,
+                margin: margin,
+                category: parts[3],
+                monthlyUnits: units
+            });
+        }
+        
+        if (parsedProducts.length === 0) throw new Error("Could not parse any valid products.");
+        
+        setLoading(true);
+        setTimeout(() => {
+            setProducts(parsedProducts);
+            analyzeAndBundle(parsedProducts);
+            setLoading(false);
+        }, 600);
+
+    } catch (err: any) {
+        setError(err.message);
+    }
+  };
+
+  return (
+    <div className="w-full h-full bg-slate-950 text-slate-200 flex flex-col font-sans min-h-screen">
+      {/* Header Section */}
+      <header className="bg-slate-900 border-b border-slate-800 p-6 flex flex-col md:flex-row justify-between items-center shrink-0 gap-4 md:gap-0">
+        <div>
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent">
+            ✨ Smart Bundle Recommender
+          </h1>
+          <p className="text-slate-400 text-sm mt-1">Universal price-based algorithm for Average Order Value (AOV) optimization.</p>
+        </div>
+        <div className="flex flex-wrap justify-center gap-3">
+          <input 
+            type="file" 
+            accept=".csv" 
+            className="hidden" 
+            ref={fileInputRef}
+            onChange={handleFileUpload} 
+          />
+          <button 
+            onClick={() => fileInputRef.current?.click()}
+            className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors">
+            ⬆️ Upload CSV
+          </button>
+          <button 
+            onClick={handleDownloadTemplate}
+            className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors">
+            ⬇️ Download Template
+          </button>
+          {products.length > 0 && (
+            <>
+              <button 
+                onClick={handleExportBundles}
+                className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors">
+                📥 Export Bundles
+              </button>
+              <button 
+                onClick={handleCopyDescriptions}
+                className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors">
+                📋 Copy Descriptions
+              </button>
+              <button 
+                onClick={handleClear}
+                className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm font-medium hover:bg-slate-700 transition-colors">
+                🔄 Clear Results
+              </button>
+            </>
+          )}
+          <button 
+            onClick={handleLoadSample}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-sm font-bold shadow-lg shadow-emerald-900/20 transition-all">
+            🎯 Load Sample Data
+          </button>
+        </div>
+      </header>
+
+      {/* Error Message */}
+      {error && (
+        <div className="shrink-0 p-4 bg-red-900/40 border-b border-red-800 text-red-200 flex items-center justify-center text-sm font-medium">
+          <span className="mr-2">⚠️</span> {error}
+        </div>
+      )}
+
+      {/* Loading State */}
+      {loading && (
+        <div className="flex-1 flex flex-col items-center justify-center py-20">
+          <div className="w-12 h-12 border-4 border-emerald-500/30 border-t-emerald-500 rounded-full spinner mb-4"></div>
+          <p className="text-emerald-400 font-medium animate-pulse text-sm">Analyzing catalog & crunching projections...</p>
+        </div>
+      )}
+
+      {/* Stats Bar */}
+      {!loading && products.length > 0 && (
+        <div className="bg-slate-900/50 px-6 py-3 border-b border-slate-800 flex items-center justify-between shrink-0">
+          <div className="flex flex-wrap items-center gap-6">
+            <div className="flex items-center gap-2">
+              <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold">Analyzed:</span>
+              <span className="text-sm font-mono text-cyan-400">{products.length} Products</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold">Engineered:</span>
+              <span className="text-sm font-mono text-emerald-400">{bundles.length} Bundles</span>
+            </div>
+            {bundles.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold">Avg Revenue Lift:</span>
+                <span className="text-sm font-mono text-emerald-400">
+                  +{(bundles.reduce((sum, b) => sum + b.revenueLift, 0) / bundles.length).toFixed(1)}%
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Main Content Grid */}
+      {!loading && products.length > 0 && (
+        <main className="flex-1 p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto overflow-x-hidden content-start">
+          {bundles.length === 0 ? (
+            <div className="col-span-full flex items-center justify-center p-12 bg-slate-800/30 rounded-xl border border-slate-800 text-slate-400 text-sm">
+               Not enough variance in product data to generate safe, profitable bundles. Try uploading more items.
+            </div>
+          ) : (
+            bundles.map((bundle, idx) => {
+              return (
+                <div key={bundle.id} className="bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-800 rounded-xl p-5 flex flex-col hover:border-emerald-500 transition-all h-full">
+                  <div className="flex justify-between items-start mb-3">
+                    <h3 className="font-bold text-lg text-white leading-tight pr-2">{bundle.name}</h3>
+                    <button 
+                      onClick={(e) => {
+                        navigator.clipboard.writeText(`${bundle.name}:\n${bundle.description}`);
+                        const target = e.currentTarget;
+                        const oldText = target.innerHTML;
+                        target.innerHTML = '📋 Copied!';
+                        setTimeout(() => target.innerHTML = oldText, 2000);
+                      }}
+                      className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-2 py-1 rounded transition-colors shrink-0">
+                      📋 Copy
+                    </button>
+                  </div>
+                  <div className="space-y-2 flex-1 mb-2">
+                    {bundle.items.map((item: any, i: number) => (
+                      <div key={i} className="flex justify-between text-sm py-1 border-b border-slate-800/50">
+                        <span className="text-slate-400 truncate pr-4">{item.name}</span>
+                        <span className="text-slate-200 font-mono shrink-0">${item.price.toFixed(2)}</span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between text-sm py-2 text-slate-500">
+                      <span className="italic">Regular Value:</span>
+                      <span className="line-through">${bundle.sumPrice.toFixed(2)}</span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 mt-auto">
+                    {bundle.variants.map((v: any, i: number) => {
+                      const isRecommended = i === 1;
+                      return (
+                        <div key={i} className={`p-2 rounded-lg flex flex-col items-center justify-center border text-center ${isRecommended ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-800/40 border-slate-700/50'}`}>
+                          <span className={`text-[10px] uppercase font-bold tracking-wider mb-1 ${isRecommended ? 'text-emerald-400' : 'text-slate-400'}`}>
+                            {v.discount * 100}% • {v.label}
+                          </span>
+                          <span className="text-white font-mono font-bold">${v.bundlePrice.toFixed(2)}</span>
+                          <div className="w-full flex justify-between mt-1 pt-1 border-t border-slate-700/50 text-[10px]">
+                            <span className="text-emerald-400">+{v.revenueLift.toFixed(0)}%</span>
+                            <span className="text-slate-400">{v.bundleMargin.toFixed(0)}%</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </main>
+      )}
+
+      {/* Empty State when no products and no loading */}
+      {!loading && products.length === 0 && (
+        <main className="flex-1 p-6 flex flex-col items-center justify-center text-center overflow-y-auto">
+          <div className="text-6xl mb-6">📦</div>
+          <h2 className="text-2xl font-bold text-white mb-3">Welcome to Smart Bundle Recommender</h2>
+          <p className="text-slate-400 text-sm max-w-lg mb-8 leading-relaxed">
+            Upload your product catalog CSV or load the sample data above to instantly discover high-converting, profitable product bundles based on retail pricing psychology.
+          </p>
+        </main>
+      )}
+    </div>
+  );
+}
